@@ -20,6 +20,19 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
 });
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    service: 'Railway OCR Service',
+    version: '1.0.0',
+    endpoints: {
+      'GET /': 'Service information',
+      'GET /health': 'Health check',
+      'POST /ocr': 'Process PDF/image for OCR'
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', service: 'Railway OCR Service' });
@@ -62,8 +75,8 @@ async function convertPdfToImages(pdfPath) {
   return results.map(result => result.path);
 }
 
-// Main PDF processing endpoint
-app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
+// OCR endpoint (alias for process-pdf)
+app.post('/ocr', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No PDF file uploaded' });
@@ -128,9 +141,9 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
     // Return successful response
     res.json({
       success: true,
+      text: extractedText.trim(),
       filename: req.file.originalname,
       moduleId: moduleId,
-      extractedText: extractedText.trim(),
       textLength: extractedText.trim().length,
       method: extractedText.includes('Basic extraction') ? 'basic' : 'ocr'
     });

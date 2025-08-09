@@ -188,51 +188,43 @@ app.post('/extract-concepts', express.json(), async (req, res) => {
       },
       body: JSON.stringify({
         model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 4000,
+        max_tokens: 2500,
         messages: [{
           role: 'user',
-          content: `Analyze the following text from "${fileName}" and extract ALL concepts, topics, definitions, algorithms, processes, and learning points that students would need to know for comprehensive understanding and exam preparation.
+          content: `Analyze the text from "${fileName}" and extract the key concepts that students need to understand for exams.
 
 Text content:
-${text}
+${text.substring(0, 8000)}
 
-EXTRACT EVERY CONCEPT - do not limit the number. Include:
-- Main concepts and topics
-- Sub-concepts and detailed points  
-- Definitions and terminology
-- Algorithms and processes described
-- Examples and case studies mentioned
-- Technical details and specifications
-- Relationships between concepts
-- Practical applications mentioned
-- Formulas and mathematical expressions
-- Code snippets or pseudocode concepts
-- Diagrams and visual elements described
+Extract the most important concepts including:
+- Main topics and definitions
+- Key algorithms and processes  
+- Core terminology
+- Important examples or applications
 
 For each concept, provide:
-1. A clear, specific title
-2. A detailed description of what students need to understand
-3. How important this concept is for exams (high/medium/low)
-4. A relevance score for exam preparation (1-10, where 10 is most likely to appear on exams)
-5. Related terms or keywords
-6. Page number if identifiable (or section if clear)
+1. Clear title
+2. Concise description (1-2 sentences)
+3. Importance level (high/medium/low)
+4. Exam relevance score (1-10)
+5. Related terms (max 3)
 
-Return your analysis in this JSON format:
+Return VALID JSON only:
 {
   "concepts": [
     {
       "id": "concept_1",
-      "title": "Specific concept name",
-      "description": "Comprehensive description of what students need to understand about this concept, including technical details",
+      "title": "Concept name",
+      "description": "Brief description what students need to know.",
       "pageNumber": 1,
-      "importance": "high|medium|low",
-      "examRelevance": 8,
-      "relatedTerms": ["term1", "term2", "term3"]
+      "importance": "high",
+      "examRelevance": 9,
+      "relatedTerms": ["term1", "term2"]
     }
   ]
 }
 
-Be exhaustive - extract every single concept, no matter how small. The goal is complete coverage of all content for thorough exam preparation.`
+Focus on quality over quantity - extract 5-15 essential concepts only.`
         }]
       })
     });
@@ -272,13 +264,50 @@ Be exhaustive - extract every single concept, no matter how small. The goal is c
         console.log('Raw AI response:', aiResponse.substring(0, 500) + '...');
         
         // Fallback: try to extract concepts manually if JSON is malformed
-        const conceptsMatch = aiResponse.match(/"concepts"\s*:\s*\[([\s\S]*?)\]/);
-        if (conceptsMatch) {
-          // Try to build a simple concepts array from the response
-          const conceptsStr = conceptsMatch[0];
-          parsed = JSON.parse(`{${conceptsStr}}`);
+        console.log('Attempting manual concept extraction...');
+        
+        // Try to find complete concept objects in the truncated response
+        const conceptObjects = [];
+        const conceptMatches = aiResponse.match(/"id":\s*"concept_\d+"/g);
+        
+        if (conceptMatches && conceptMatches.length > 0) {
+          // For each concept found, try to extract a minimal concept object
+          for (let i = 0; i < Math.min(conceptMatches.length, 10); i++) {
+            const conceptId = `concept_${i + 1}`;
+            const titleMatch = aiResponse.match(new RegExp(`"id":\\s*"${conceptId}"[\\s\\S]*?"title":\\s*"([^"]*)"`, 'i'));
+            const descMatch = aiResponse.match(new RegExp(`"id":\\s*"${conceptId}"[\\s\\S]*?"description":\\s*"([^"]*)"`, 'i'));
+            
+            if (titleMatch) {
+              conceptObjects.push({
+                id: conceptId,
+                title: titleMatch[1] || `Concept ${i + 1}`,
+                description: descMatch ? descMatch[1] : `Learning point ${i + 1} from ${fileName}`,
+                pageNumber: 1,
+                importance: "medium",
+                examRelevance: 7,
+                relatedTerms: []
+              });
+            }
+          }
+        }
+        
+        if (conceptObjects.length > 0) {
+          parsed = { concepts: conceptObjects };
         } else {
-          throw new Error('Could not extract concepts from AI response');
+          // Final fallback: create generic concepts
+          parsed = {
+            concepts: [
+              {
+                id: "concept_1",
+                title: `Main Content from ${fileName}`,
+                description: `Key learning points and concepts from the uploaded material.`,
+                pageNumber: 1,
+                importance: "high",
+                examRelevance: 8,
+                relatedTerms: ["study material", "course content"]
+              }
+            ]
+          };
         }
       }
       

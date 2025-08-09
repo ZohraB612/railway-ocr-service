@@ -256,7 +256,31 @@ Be exhaustive - extract every single concept, no matter how small. The goal is c
         jsonStr = jsonMatch[1] || jsonMatch[0];
       }
       
-      const parsed = JSON.parse(jsonStr);
+      // Clean up common JSON formatting issues
+      jsonStr = jsonStr
+        .replace(/,\s*}/g, '}')  // Remove trailing commas before }
+        .replace(/,\s*]/g, ']')  // Remove trailing commas before ]
+        .replace(/[\u201C\u201D]/g, '"')  // Replace smart quotes
+        .replace(/[\u2018\u2019]/g, "'")  // Replace smart apostrophes
+        .trim();
+      
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (firstParseError) {
+        console.log('First parse failed, trying to extract concepts manually:', firstParseError.message);
+        console.log('Raw AI response:', aiResponse.substring(0, 500) + '...');
+        
+        // Fallback: try to extract concepts manually if JSON is malformed
+        const conceptsMatch = aiResponse.match(/"concepts"\s*:\s*\[([\s\S]*?)\]/);
+        if (conceptsMatch) {
+          // Try to build a simple concepts array from the response
+          const conceptsStr = conceptsMatch[0];
+          parsed = JSON.parse(`{${conceptsStr}}`);
+        } else {
+          throw new Error('Could not extract concepts from AI response');
+        }
+      }
       
       res.json({
         success: true,
@@ -266,9 +290,11 @@ Be exhaustive - extract every single concept, no matter how small. The goal is c
       
     } catch (parseError) {
       console.error('Failed to parse AI response:', parseError);
+      console.error('Raw response:', aiResponse.substring(0, 1000));
       res.status(500).json({ 
         error: 'Failed to parse AI response',
-        details: parseError.message
+        details: parseError.message,
+        rawResponse: aiResponse.substring(0, 200) + '...'
       });
     }
 

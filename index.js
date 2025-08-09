@@ -23,12 +23,14 @@ const upload = multer({
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    service: 'Railway OCR Service',
-    version: '1.0.0',
+    service: 'Railway OCR & AI Service',
+    version: '2.0.0',
     endpoints: {
       'GET /': 'Service information',
       'GET /health': 'Health check',
-      'POST /ocr': 'Process PDF/image for OCR'
+      'POST /ocr': 'Process PDF/image for OCR',
+      'POST /extract-concepts': 'Extract concepts from text using AI',
+      'POST /chat': 'AI chat for study assistance'
     }
   });
 });
@@ -163,8 +165,181 @@ app.post('/ocr', upload.single('pdf'), async (req, res) => {
   }
 });
 
+// Concept extraction endpoint
+app.post('/extract-concepts', express.json(), async (req, res) => {
+  try {
+    const { text, fileName } = req.body;
+    
+    if (!text || !fileName) {
+      return res.status(400).json({ error: 'Text and fileName are required' });
+    }
+
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      return res.status(500).json({ error: 'Anthropic API key not configured' });
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: `Analyze the following text from "${fileName}" and extract ALL concepts, topics, definitions, algorithms, processes, and learning points that students would need to know for comprehensive understanding and exam preparation.
+
+Text content:
+${text}
+
+EXTRACT EVERY CONCEPT - do not limit the number. Include:
+- Main concepts and topics
+- Sub-concepts and detailed points  
+- Definitions and terminology
+- Algorithms and processes described
+- Examples and case studies mentioned
+- Technical details and specifications
+- Relationships between concepts
+- Practical applications mentioned
+- Formulas and mathematical expressions
+- Code snippets or pseudocode concepts
+- Diagrams and visual elements described
+
+For each concept, provide:
+1. A clear, specific title
+2. A detailed description of what students need to understand
+3. How important this concept is for exams (high/medium/low)
+4. A relevance score for exam preparation (1-10, where 10 is most likely to appear on exams)
+5. Related terms or keywords
+6. Page number if identifiable (or section if clear)
+
+Return your analysis in this JSON format:
+{
+  "concepts": [
+    {
+      "id": "concept_1",
+      "title": "Specific concept name",
+      "description": "Comprehensive description of what students need to understand about this concept, including technical details",
+      "pageNumber": 1,
+      "importance": "high|medium|low",
+      "examRelevance": 8,
+      "relatedTerms": ["term1", "term2", "term3"]
+    }
+  ]
+}
+
+Be exhaustive - extract every single concept, no matter how small. The goal is complete coverage of all content for thorough exam preparation.`
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ 
+        error: `Anthropic API failed: ${response.status}`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    const aiResponse = data.content[0].text;
+    
+    try {
+      // Extract JSON from the response
+      let jsonStr = aiResponse.trim();
+      const jsonMatch = jsonStr.match(/```json\s*([\s\S]*?)\s*```/) || jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1] || jsonMatch[0];
+      }
+      
+      const parsed = JSON.parse(jsonStr);
+      
+      res.json({
+        success: true,
+        concepts: parsed.concepts || [],
+        totalConcepts: parsed.concepts?.length || 0
+      });
+      
+    } catch (parseError) {
+      console.error('Failed to parse AI response:', parseError);
+      res.status(500).json({ 
+        error: 'Failed to parse AI response',
+        details: parseError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('Error extracting concepts:', error);
+    res.status(500).json({ 
+      error: 'Concept extraction failed',
+      details: error.message
+    });
+  }
+});
+
+// AI chat endpoint for study assistance
+app.post('/chat', express.json(), async (req, res) => {
+  try {
+    const { message, context } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      return res.status(500).json({ error: 'Anthropic API key not configured' });
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: context ? `${context}\n\n${message}` : message
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ 
+        error: `Anthropic API failed: ${response.status}`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    
+    res.json({
+      success: true,
+      response: data.content[0].text
+    });
+
+  } catch (error) {
+    console.error('Error in chat:', error);
+    res.status(500).json({ 
+      error: 'Chat failed',
+      details: error.message
+    });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`🚀 Railway OCR Service running on port ${port}`);
   console.log(`📄 Ready to process PDFs with Tesseract OCR`);
+  console.log(`🧠 Ready to extract concepts with Claude AI`);
+  console.log(`💬 Ready to provide study assistance`);
 });
